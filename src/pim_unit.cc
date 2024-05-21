@@ -14,6 +14,8 @@ PimUnit::PimUnit(Config& config, int id) : pim_id(id), config_(config) {
 	for (int i = 0; i < (CACHE_SIZE / (int)sizeof(unit_t)); i++) {
 		CACHE_[i] = 0;
 	}
+	
+	for (int i = 0; i < 8; i++){cache_dirty[i]=false;}
 
 	cache_written = false;
 }
@@ -27,6 +29,7 @@ void PimUnit::init(uint8_t* pmemAddr, uint64_t pmemAddr_size, unsigned int burst
 	PPC = 0;
 	LC = 0;
 	cache_written = false;
+	for (int i = 0; i < 8; i++){cache_dirty[i]=false;}
 }
 
 void PimUnit::PIM_OP() {
@@ -107,41 +110,47 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 	unsigned source_bank = GetSourceBank();
 
 	int RW_cache_index = (int)(!operand_cache);
+	
+	uint64_t ba_offset = 0;
 
 	if (source_bank & 0b1){
-		if (base_row.ba0_ == -1) {
+		if (base_row.ba0_ == (uint64_t)-1) {
 			std::cerr << "ba0 not a valid base row_R" << std::endl;
 			exit(1);
 		}
-		source_addr = hex_addr + base_row.ba0_;
-		memcpy((CACHE_+(RW_cache_index*UNITS_PER_WORD)), pmemAddr_ + hex_addr, WORD_SIZE);
+		ba_offset = (uint64_t)0 << (config_.ba_pos + config_.shift_bits);
+		source_addr = hex_addr + base_row.ba0_ + ba_offset;	
+		memcpy((CACHE_+(RW_cache_index*UNITS_PER_WORD)), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
 	}
 	if (source_bank & 0b10) {
-		if (base_row.ba1_ == -1) {
+		if (base_row.ba1_ == (uint64_t)-1) {
 			std::cerr << "ba1 not a valid base row" << std::endl;
 			exit(1);
 		}
-		source_addr = hex_addr + base_row.ba1_;
-		memcpy((CACHE_ + (1 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + hex_addr, WORD_SIZE);
+		ba_offset = (uint64_t)1 << (config_.ba_pos + config_.shift_bits);
+		source_addr = hex_addr + base_row.ba1_ + ba_offset;
+		memcpy((CACHE_ + (1 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
 	}
 	if (source_bank & 0b100) {
-		if (base_row.ba2_ == -1) {
+		if (base_row.ba2_ == (uint64_t)-1) {
 			std::cerr << "ba2 not a valid base row" << std::endl;
 			exit(1);
 		}
-		source_addr = hex_addr + base_row.ba2_;
-		memcpy((CACHE_ + (2 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + hex_addr, WORD_SIZE);
+		ba_offset = (uint64_t)2 << (config_.ba_pos + config_.shift_bits);
+		source_addr = hex_addr + base_row.ba2_ + ba_offset;
+		memcpy((CACHE_ + (2 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
 	}
 	if (source_bank & 0b1000) {
-		if (base_row.ba3_ == -1) {
-		        
+		if (base_row.ba3_ == (uint64_t)-1) {
+		        std::cerr << "ba3 not a valid base row" << std::endl;
 			exit(1);
 		}
-		source_addr = hex_addr + base_row.ba3_;
-		memcpy((CACHE_ + (3 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + hex_addr, WORD_SIZE);
+		ba_offset = (uint64_t)3 << (config_.ba_pos + config_.shift_bits);
+		source_addr = hex_addr + base_row.ba3_ + ba_offset;
+		memcpy((CACHE_ + (3 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
 	}
 
@@ -151,40 +160,55 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 void PimUnit::Pim_Write(uint64_t hex_addr, BaseRow base_row) {
 	int RW_cache_index = (int)(!operand_cache);
 	uint64_t drain_addr = 0;
-
-	if (CRF[PPC].dst_ == 0) {
-		if (base_row.ba0_ == -1) {
+	
+	uint64_t ba_offset = 0;
+	if (cache_dirty[RW_cache_index]) {
+		if (base_row.ba0_ == (uint64_t)-1) {
 			std::cerr << "ba0 not a valid base row_W" << std::endl;
 			std::cout << "PPC at error: " << (int)PPC << std::endl;
 		        std::cout << "LC at error: " << LC << std::endl;
 			exit(1);
 		}
-		drain_addr = hex_addr + base_row.ba0_;
-		memcpy(pmemAddr_ + hex_addr, (CACHE_ + (RW_cache_index * UNITS_PER_WORD)), WORD_SIZE);
+		ba_offset = (uint64_t)0 << (config_.ba_pos + config_.shift_bits);
+		drain_addr = hex_addr + base_row.ba0_ + ba_offset;
+		//if(!pim_id){std::cout << "drain addr: " << std::hex << drain_addr << std::endl;}
+		//if(!pim_id){std::cout << "in cache: " << *((uint16_t*)(CACHE_ + (RW_cache_index * UNITS_PER_WORD))) << std::endl;}
+		memcpy(pmemAddr_ + drain_addr, (CACHE_ + (RW_cache_index * UNITS_PER_WORD)), WORD_SIZE);
+		cache_dirty[RW_cache_index] = false;
 	}
-	else if (CRF[PPC].dst_ == 1) {
-		if (base_row.ba1_ == -1) {
+	else if (cache_dirty[RW_cache_index + 2]) {
+		if (base_row.ba1_ == (uint64_t)-1) {
 			std::cerr << "ba1 not a valid base row" << std::endl;
 			exit(1);
 		}
-		drain_addr = hex_addr + base_row.ba1_;
-		memcpy(pmemAddr_ + hex_addr, (CACHE_ + (1 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		ba_offset = (uint64_t)1 << (config_.ba_pos + config_.shift_bits);
+		drain_addr = hex_addr + base_row.ba1_ + ba_offset;
+		//if(!pim_id){std::cout << "drain addr: " << std::hex << drain_addr << std::endl;}
+		//if(!pim_id){std::cout << "base ba1 z: " << std::hex << base_row.ba1_ << std::endl;}
+		memcpy(pmemAddr_ + drain_addr, (CACHE_ + (1 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		cache_dirty[RW_cache_index + 2] = false;
 	}
-	else if (CRF[PPC].dst_ == 2) {
-		if (base_row.ba2_ == -1) {
+	else if (cache_dirty[RW_cache_index + 4]) {
+		if (base_row.ba2_ == (uint64_t)-1) {
 			std::cerr << "ba2 not a valid base row" << std::endl;
 			exit(1);
 		}
-		drain_addr = hex_addr + base_row.ba2_;
-		memcpy(pmemAddr_ + hex_addr, (CACHE_ + (2 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		ba_offset = (uint64_t)2 << (config_.ba_pos + config_.shift_bits);
+		drain_addr = hex_addr + base_row.ba2_ + ba_offset;
+		//if(!pim_id){std::cout << "drain addr: " << std::hex << drain_addr << std::endl;}
+		memcpy(pmemAddr_ + drain_addr, (CACHE_ + (2 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		cache_dirty[RW_cache_index + 4] = false;
 	}
-	else {
-		if (base_row.ba3_ == -1) {
+	else if (cache_dirty[RW_cache_index + 6]) {
+		if (base_row.ba3_ == (uint64_t)-1) {
 			std::cerr << "ba3 not a valid base row_w" << std::endl;
 			exit(1);
 		}
-		drain_addr = hex_addr + base_row.ba3_;
-		memcpy(pmemAddr_ + hex_addr, (CACHE_ + (3 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		ba_offset = (uint64_t)3 << (config_.ba_pos + config_.shift_bits);
+		drain_addr = hex_addr + base_row.ba3_ + ba_offset;
+		//if(!pim_id){std::cout << "drain addr: " << std::hex << drain_addr << std::endl;}
+		memcpy(pmemAddr_ + drain_addr, (CACHE_ + (3 * 2 + RW_cache_index) * UNITS_PER_WORD), WORD_SIZE);
+		cache_dirty[RW_cache_index + 6] = false;
 	}
 }
 
@@ -195,6 +219,7 @@ void PimUnit::_ADD() {
 	unit_t* src1;
 
 	dst = CACHE_ + (CRF[PPC].dst_ * 2 + operand_cache) * UNITS_PER_WORD;
+	cache_dirty[CRF[PPC].dst_ * 2 + operand_cache] = true;
 
 	if (CRF[PPC].dst_ & 1) {
 		src0 = CACHE_ + operand_cache * UNITS_PER_WORD;

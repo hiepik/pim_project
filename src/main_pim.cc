@@ -35,8 +35,8 @@ int main(int argc, const char** argv) {
         // Fill input operands with random value
         // for debug i filled it with non random value
         for (int i = 0; i < n; i++) {
-            ((uint16_t*)x)[i] = (uint16_t)i;
-            ((uint16_t*)y)[i] = -(uint16_t)i;
+            ((uint16_t*)x)[i] = (uint16_t)(i);
+            ((uint16_t*)y)[i] = (uint16_t)1;
         }
 
         // Define Transaction generator for ADD computation

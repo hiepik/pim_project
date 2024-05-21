@@ -27,6 +27,7 @@ public:
 	int pim_id;
 
 	bool cache_written = false;
+	bool cache_dirty[8];
 
 	PimInstruction CRF[32];
 

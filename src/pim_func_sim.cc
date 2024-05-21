@@ -75,6 +75,7 @@ bool PimFuncSim::ModeChanger(uint64_t hex_addr) {
 // Write DataPtr data to physical memory address of hex_addr
 void PimFuncSim::PmemWrite(uint64_t hex_addr, uint8_t* DataPtr) {
     uint8_t* host_addr = pmemAddr + hex_addr;
+    //std::cout << "is write working?: " << *((uint16_t*)DataPtr) << std::endl;
     memcpy(host_addr, DataPtr, burstSize);
 }
 
@@ -149,7 +150,8 @@ void PimFuncSim::PIM_Read(Command cmd) {
     // should change row bank0 to row_offset and send it to pim_units
     uint64_t base_addr = cmd.hex_addr - base_row_.ba0_;
     for (int i = 0; i < 4; i++) {
-        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Read(base_addr, base_row_);
+        uint64_t bg_offset =  ((uint64_t)i) << (config_.bg_pos + config_.shift_bits);
+        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Read(base_addr + bg_offset, base_row_);
     }
 }
 
@@ -157,7 +159,8 @@ void PimFuncSim::PIM_Write(Command cmd) {
     int channel_ = cmd.Channel();
     uint64_t base_addr = cmd.hex_addr - base_row_.ba0_;
     for (int i = 0; i < 4; i++) {
-        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Write(base_addr, base_row_);
+        uint64_t bg_offset =  ((uint64_t)i) << (config_.bg_pos + config_.shift_bits);
+        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Write(bg_offset + base_addr, base_row_);
     }
 }
 }

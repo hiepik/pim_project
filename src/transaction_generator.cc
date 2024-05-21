@@ -96,7 +96,7 @@ namespace dramsim3 {
         base_row_x_ = addr_x_;
         base_row_y_ = addr_y_;
         base_row_z_ = addr_z_;
-
+	//std::cout << "base ba0 z real: " << std::hex << base_row_z_ << std::endl;
         row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
         op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
 
@@ -280,7 +280,7 @@ namespace dramsim3 {
         for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
             uint64_t address;
             address = ADDR_CONV1(addr_z_ + offset);
-            TryAddTransaction(addr_z_ + offset, false, z_ + offset);
+            TryAddTransaction(address, false, z_ + offset);
         }
         Barrier();
     }
@@ -292,6 +292,7 @@ namespace dramsim3 {
         for (int i = 0; i < n_; i++) {
             sum = ((uint16_t*)x_)[i] + ((uint16_t*)y_)[i];
             err += ABS(((uint16_t*)z_)[i] - sum);    
+            //std::cout << "real: " << sum << " result: " << ((uint16_t*)z_)[i] << std::endl;
         }
 
         std::cout << "ERROR : " << err << std::endl;
