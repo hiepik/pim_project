@@ -9,7 +9,7 @@ int main(int argc, const char** argv) {
     srand(time(NULL));
 
     //<mod> need to add code to choose operation
-    std::string pim_api = "add";
+    std::string pim_api = "bn";
     // have to initiallize config file and output dir
     std::string config_file = "../configs/HBM2_4Gb_test.ini";
     std::string output_dir = "output.txt";
@@ -87,37 +87,34 @@ int main(int argc, const char** argv) {
         // Define Transaction generator for GEMV computation
         tx_generator = new GemvTransactionGenerator(config_file, output_dir,
                                                     m, n, A, x, y);
-    } else if (pim_api == "bn") {
-        uint64_t l = args::get(bn_l_arg);
-        uint64_t f = args::get(bn_f_arg);
+    */
+    else if (pim_api == "bn") {
+        uint64_t l = 8;
+        uint64_t f = 4096;
 
         uint64_t num_duplicate = 4096 / f;
 
         // Define input x, weight y, z
         uint8_t *x = (uint8_t *) malloc(sizeof(uint16_t) * l * f);
-        uint8_t *y = (uint8_t *) malloc(sizeof(uint16_t) * 4096 * 8);
-        uint8_t *z = (uint8_t *) malloc(sizeof(uint16_t) * 4096 * 8);
+        uint8_t *y = (uint8_t *) malloc(sizeof(uint16_t) * 4096 * 2);
+        uint8_t *z = (uint8_t *) malloc(sizeof(uint16_t) * 4096 * 2);
         // Define output vector w
         uint8_t *w = (uint8_t *) malloc(sizeof(uint16_t) * l * f);
 
         // Fill input operands with random value
         for (int fi=0; fi<f; fi++) {
-            half h_y = half(f32rng());
-            half h_z = half(f32rng());
-            for (int coi=0; coi<num_duplicate*8; coi++) {
-                ((uint16_t*)y)[fi + coi*f] = *reinterpret_cast<uint16_t*>(&h_y);
-                ((uint16_t*)z)[fi + coi*f] = *reinterpret_cast<uint16_t*>(&h_z);
+            for (int coi=0; coi<num_duplicate*2; coi++) {
+                ((uint16_t*)y)[fi + coi*f] = (uint16_t)(-fi);
+                ((uint16_t*)z)[fi + coi*f] = (uint16_t)1;
             }
             for (int li=0; li<l; li++) {
-                half h_x = half(f32rng());
-                ((uint16_t*)x)[li*f + fi] = *reinterpret_cast<uint16_t*>(&h_x);
+                ((uint16_t*)x)[li*f + fi] = (uint16_t)li*f + fi;
             }
         }
         // Define Transaction generator for GEMV computation
         tx_generator = new BatchNormTransactionGenerator(config_file, output_dir,
                                                          l, f, x, y, z, w);
     }
-    */
     else {
         std::cout << "currently only support add" << std::endl;    
     }

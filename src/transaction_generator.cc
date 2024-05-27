@@ -96,6 +96,7 @@ namespace dramsim3 {
         base_row_x_ = addr_x_;
         base_row_y_ = addr_y_;
         base_row_z_ = addr_z_;
+        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
 	//std::cout << "base ba0 z real: " << std::hex << base_row_z_ << std::endl;
         row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
         op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
@@ -104,17 +105,17 @@ namespace dramsim3 {
         
 
         // PimInstruction undone
-        // for right now (type, dst, imm0, imm1)
-        ukernel_add_[0] = PimInstruction(PIM_OPERATION::ADD, 1);
-        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, -1, 7);
-        ukernel_add_[2] = PimInstruction(PIM_OPERATION::ADD, 0);
-        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, -1, 7);
-        ukernel_add_[4] = PimInstruction(PIM_OPERATION::ADD, 3);
-        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, -1, 7);
-        ukernel_add_[6] = PimInstruction(PIM_OPERATION::ADD, 2);
-        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, -1, 7);
-        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0);
-        
+        // for right now (type, dst, src, imm0 =0, imm1 =0)
+        ukernel_add_[0] = PimInstruction(PIM_OPERATION::ADD, 1, 0b0101);
+        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[2] = PimInstruction(PIM_OPERATION::ADD, 0, 0b1010);
+        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[4] = PimInstruction(PIM_OPERATION::ADD, 3, 0b0101);
+        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[6] = PimInstruction(PIM_OPERATION::ADD, 2, 0b1010);
+        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);
+                
     }
 
 
@@ -198,20 +199,19 @@ namespace dramsim3 {
             BaseRow base_row_;
             switch (ba) {
             case 0:
-                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, -1);
+                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, base_row_idle_);
                 break;
             case 1:
-                base_row_ = BaseRow(base_row_z_, base_row_x_, -1, base_row_y_);
+                base_row_ = BaseRow(base_row_z_, base_row_x_, base_row_idle_, base_row_y_);
                 break;
             case 2:
-                base_row_ = BaseRow(base_row_y_, -1, base_row_x_, base_row_z_);
+                base_row_ = BaseRow(base_row_y_, base_row_idle_, base_row_x_, base_row_z_);
                 break;
             case 3:
-                base_row_ = BaseRow(-1, base_row_y_, base_row_z_, base_row_x_);
+                base_row_ = BaseRow(base_row_idle_, base_row_y_, base_row_z_, base_row_x_);
             }
             memory_system_.SetBaseRow(base_row_);  // 메모리 시스템에 base row 보낸다.
 
-            uint64_t bank0_base_row = (uint64_t)base_row_.ba0_; // 첫번째 base row
             // dramsim에서의 cycle 은 전부 각 channel의 첫번째 bank에서 이루어진다.
             // 따라서 BG 모드에서는 모든 transaction을 bank 0로 보낸다.
 
@@ -231,9 +231,9 @@ namespace dramsim3 {
 
                     // send Source Bank Read
                     for (int ch = 0; ch < NUM_CHANNEL; ch++) {
-                        Address addr(ch, 0, 0,  0, row_offset, col);
+                        Address addr(ch, 0, 0,  ba, row_offset, col);
                         uint64_t hex_addr = ReverseAddressMapping(addr);
-                        TryAddTransaction(bank0_base_row + hex_addr, false, data_temp_); // row를 더해주는 이유는 1번 bank에만 transaction을 보낼 것이기 때문이다.
+                        TryAddTransaction(hex_addr, false, data_temp_); 
                     }
                 }
 
@@ -243,10 +243,10 @@ namespace dramsim3 {
                 // 이 시간을 DRAMSIM에 구현하기 위해 write transaction을 매 row 계산마다 2번씩 가해주어야 한다.
                 for (int i = 0; i < 2; i++) {
                     for (int ch = 0; ch < NUM_CHANNEL; ch++) {
-                        Address addr(ch, 0, 0, 0, row_offset, i); // at this time, col does not matter
+                        Address addr(ch, 0, 0, ba, row_offset, i); // at this time, col does not matter
                         uint64_t hex_addr = ReverseAddressMapping(addr);
 			 // putting 2 write command in bank0 at same row is the only thing that matters
-                        TryAddTransaction(bank0_base_row + hex_addr, true, data_temp_);
+                        TryAddTransaction(hex_addr, true, data_temp_);
                     }
                 }
 
@@ -298,6 +298,199 @@ namespace dramsim3 {
         std::cout << "ERROR : " << err << std::endl;
     }
 
+    
+    void BatchNormTransactionGenerator::Initialize() {
+        // base address of operands
+        addr_x_ = 0;
+        addr_w_ = Ceiling(l_ * f_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
+        addr_y_ = addr_w_ + Ceiling(l_ * f_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
+        addr_z_ = addr_y_ + Ceiling(f_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
+        // base row
+        base_row_x_ = addr_x_;
+        base_row_w_ = addr_w_;
+        base_row_y_ = addr_y_;
+        base_row_z_ = addr_z_;
+        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
+        // how many rows (X and W)
+        row_count_ = Ceiling(l_ * f_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK);
+        // how many operation needed
+        op_count_ = Ceiling(l_ * f_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD * NUM_BANK);
+        
+        ukernel_bn_ = (PimInstruction*)malloc(sizeof(PimInstruction)*32);
+        
+        ukernel_bn_[0] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
+        ukernel_bn_[1] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
+        ukernel_bn_[2] =  PimInstruction(PIM_OPERATION::BN, 2, 0b0001);
+        ukernel_bn_[3] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[4] =  PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
+        ukernel_bn_[5] =  PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
+        ukernel_bn_[6] =  PimInstruction(PIM_OPERATION::BN, 3, 0b0010);
+        ukernel_bn_[7] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[8] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
+        ukernel_bn_[9] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
+        ukernel_bn_[10] = PimInstruction(PIM_OPERATION::BN, 0, 0b0100);
+        ukernel_bn_[11] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[12] = PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
+        ukernel_bn_[13] = PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
+        ukernel_bn_[14] = PimInstruction(PIM_OPERATION::BN, 1, 0b1000);
+        ukernel_bn_[15] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[16] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);
+    
+    }
+
+    void BatchNormTransactionGenerator::SetData(){
+        // strided size of one operand with one computation part(minimum)
+        uint64_t strided_size = Ceiling(l_ * f_ * UNIT_SIZE, SIZE_WORD * NUM_BANK);
+        uint64_t strided_size_ = Ceiling(4096 * 2 * UNIT_SIZE, SIZE_WORD * NUM_BANK);
+
+#ifdef debug_mode
+        std::cout << "HOST:\tSet input data\n";
+#endif
+
+	uint64_t address;
+	
+        // Write input data x to physical memory
+        for (int offset = 0; offset < strided_size; offset += SIZE_WORD){
+            address = ADDR_CONV0(addr_x_ + offset);
+            TryAddTransaction(address, true, x_ + offset);
+	}
+        // Write input data y to physical memory
+        for (int offset = 0; offset < strided_size_; offset += SIZE_WORD) {
+            address = ADDR_CONV1(addr_y_ + offset);
+            TryAddTransaction(address, true, y_ + offset);
+        }
+        // Write input data z to physical memory
+        for (int offset = 0; offset < strided_size_; offset += SIZE_WORD) {
+            address = ADDR_CONV3(addr_z_ + offset);
+            TryAddTransaction(address, true, z_ + offset);
+        }
+        Barrier();
+        
+        memory_system_.PushCRF(ukernel_bn_);
+    }
+
+    void BatchNormTransactionGenerator::Execute() {
+        // mode transition      
+
+        *data_temp_ |= 1;
+#ifdef debug_mode
+        std::cout << "\nHOST:\t[1] SB -> BG \n";
+#endif
+        for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+            Address addr(ch, 0, 0, 0, MAP_BGMR, 0);
+            uint64_t hex_addr = ReverseAddressMapping(addr);
+            TryAddTransaction(hex_addr, false, data_temp_);
+        }
+        Barrier();
+
+        memory_system_.SetMode(1); // tell memory controller to change the controllers mode to BG mode
+        memory_system_.SetWriteBufferThreshold(1);
+        
+        BaseRow base_row_load_;
+        BaseRow base_row_bn_;
+        *data_temp_ |= 1;
+        
+        for(int ba=0; ba<4; ba++){
+            // base row set by ba
+            switch (ba) {
+            case 0:
+                base_row_load_ = BaseRow(base_row_idle_, base_row_y_, base_row_idle_, base_row_z_);
+                base_row_bn_   = BaseRow(base_row_x_, base_row_idle_, base_row_w_, base_row_idle_);
+                break;
+            case 1:
+                base_row_load_ = BaseRow(base_row_y_, base_row_idle_, base_row_z_, base_row_idle_);
+                base_row_bn_   = BaseRow(base_row_idle_, base_row_x_, base_row_idle_, base_row_w_);
+                break;
+            case 2:
+                base_row_load_ = BaseRow(base_row_idle_, base_row_z_, base_row_idle_, base_row_y_);
+                base_row_bn_   = BaseRow(base_row_w_, base_row_idle_, base_row_x_, base_row_idle_);
+                break;
+            case 3:
+                base_row_load_ = BaseRow(base_row_z_, base_row_idle_, base_row_y_, base_row_idle_);
+                base_row_bn_   = BaseRow(base_row_idle_, base_row_w_, base_row_idle_, base_row_x_);
+            }
+            
+            // SetBaseRow for LOAD
+            memory_system_.SetBaseRow(base_row_load_);
+            // load read transaction (load y and z to cache
+            for(int col=0; col < 2; col++){
+                for(int ch=0; ch<NUM_CHANNEL; ch++){
+                    Address addr(ch, 0, 0, ba, 0, col);
+                    uint64_t hex_addr = ReverseAddressMapping(addr);
+                    TryAddTransaction(hex_addr, false, data_temp_);
+                }
+            }         
+            Barrier(); // y, z should be set before batch normalization start
+            	    
+            // ba bn set
+            memory_system_.SetBaseRow(base_row_bn_);
+            // row for loop
+            for(int row_offset = 0; row_offset < row_count_; row_offset++){
+                // bn read transaction
+                for(int col=0; col < NUM_WORD_PER_ROW; col++){
+                    if(row_offset*NUM_WORD_PER_ROW+col == op_count_){ break; }
+                    for(int ch = 0; ch<NUM_CHANNEL; ch++){
+                        Address addr(ch, 0, 0, ba, row_offset, col);
+                        uint64_t hex_addr = ReverseAddressMapping(addr);
+                        TryAddTransaction(hex_addr, false, data_temp_);
+                    }
+                }
+                // drain write
+                for (int i = 0; i < 2; i++) {
+                    for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+                        Address addr(ch, 0, 0, ba, row_offset, i); // at this time, col does not matter
+                        uint64_t hex_addr = ReverseAddressMapping(addr);
+			 // putting 2 write command in bank0 at same row is the only thing that matters
+                        TryAddTransaction(hex_addr, true, data_temp_);
+                    }
+                }
+                // barrier
+                Barrier();
+            }
+        } 
+        memory_system_.SetMode(0);
+        memory_system_.SetWriteBufferThreshold(-1);   
+    }
+
+    void BatchNormTransactionGenerator::GetResult(){
+        // Mode transition: BG -> SB
+#ifdef debug_mode
+        std::cout << "HOST:\t[4] BG -> SB \n";
+#endif
+        for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+            Address addr(ch, 0, 0, 0, MAP_SBMR, 0);
+            uint64_t hex_addr = ReverseAddressMapping(addr);
+            TryAddTransaction(hex_addr, false, data_temp_);
+        }
+        Barrier();
+
+        uint64_t strided_size = Ceiling(l_ * f_ * UNIT_SIZE, SIZE_WORD * NUM_BANK);
+        // Read output data w
+#ifdef debug_mode
+        std::cout << "\nHOST:\tRead output data z\n";
+#endif
+        for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
+            uint64_t address;
+            address = ADDR_CONV2(addr_w_ + offset);
+            TryAddTransaction(address, false, w_ + offset);
+        }
+        Barrier(); 
+    }
+    
+    // Calculate error between the result of PIM computation and actual answer
+    void BatchNormTransactionGenerator::CheckResult() {
+        int err = 0;
+        uint16_t norm;
+        for(int li=0; li < l_; li++){
+            for(int fi=0; fi < f_; fi++){
+                norm = ((uint16_t*)x_)[f_*li+fi] * ((uint16_t*)y_)[fi] + ((uint16_t*)z_)[fi];
+                err += ABS(((uint16_t*)w_)[f_*li+fi] - norm);              
+            }
+        }
+        std::cout << "ERROR : " << err << std::endl;
+    }
+    
+    
     ///////////////////////////////////////////////////////////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////////////////////
     /*

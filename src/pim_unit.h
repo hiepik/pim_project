@@ -15,6 +15,8 @@
 #include "./common.h"
 
 
+#define IDLE_ROW 0x3ffc
+
 namespace dramsim3 {
 
 class PimUnit {
@@ -39,6 +41,7 @@ public:
 	unsigned GetSourceBank();
 
 	void _ADD();
+	void _BN();
 
 	unit_t* CACHE_;
 
@@ -51,6 +54,7 @@ protected:
 
 private:
 	unsigned operand_cache;
+	uint64_t idle_row;
 };
 
 } // dramsim

@@ -15,7 +15,11 @@ enum class PIM_OPERATION {
 	JUMP = 0,
 	NOP,
 	EXIT,
-	ADD
+	LD,
+	ADD,
+	MUL,
+	BN,
+	GEMV	
 };
 
 class PimInstruction {
@@ -23,17 +27,20 @@ public:
 	PimInstruction():
 		PIM_OP(PIM_OPERATION::NOP),
 		dst_(-1),
+		src_(0),
 		imm0_(0),
 		imm1_(0) {}
 		
-	PimInstruction(PIM_OPERATION pim_op, int dst, int imm0 = 0, int imm1 = 0) :
+	PimInstruction(PIM_OPERATION pim_op, int dst, unsigned src, int imm0 = 0, int imm1 = 0) :
 		PIM_OP(pim_op),
 		dst_(dst),
+		src_(src),
 		imm0_(imm0),
 		imm1_(imm1) {}
 
 	PIM_OPERATION PIM_OP;
 	int dst_;
+	unsigned src_;
 	int imm0_;
 	int imm1_;
 };

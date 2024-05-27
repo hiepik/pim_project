@@ -148,19 +148,24 @@ void PimFuncSim::PIM_Read(Command cmd) {
     int channel_ = cmd.Channel();
     // cmd is the one for bank0
     // should change row bank0 to row_offset and send it to pim_units
-    uint64_t base_addr = cmd.hex_addr - base_row_.ba0_;
+    //uint64_t base_addr = cmd.hex_addr;
+    Address addr = config_.AddressMapping(cmd.hex_addr);
+    addr.bank = 0;	// reset bank because pim_unit will broadcast cmd to banks in bankgroup
     for (int i = 0; i < 4; i++) {
-        uint64_t bg_offset =  ((uint64_t)i) << (config_.bg_pos + config_.shift_bits);
-        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Read(base_addr + bg_offset, base_row_);
+        addr.bankgroup = i;
+        uint64_t base_addr = ReverseAddressMapping(addr);
+        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Read(base_addr, base_row_);
     }
 }
 
 void PimFuncSim::PIM_Write(Command cmd) {
     int channel_ = cmd.Channel();
-    uint64_t base_addr = cmd.hex_addr - base_row_.ba0_;
+    Address addr = config_.AddressMapping(cmd.hex_addr);
+    addr.bank = 0;    // reset bank because pim_unit will broadcast cmd to banks in bankgroup
     for (int i = 0; i < 4; i++) {
-        uint64_t bg_offset =  ((uint64_t)i) << (config_.bg_pos + config_.shift_bits);
-        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Write(bg_offset + base_addr, base_row_);
+        addr.bankgroup = i;
+        uint64_t base_addr = ReverseAddressMapping(addr);
+        pim_unit_[channel_ * config_.bankgroups + i]->Pim_Write(base_addr, base_row_);
     }
 }
 }

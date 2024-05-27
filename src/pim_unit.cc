@@ -18,6 +18,8 @@ PimUnit::PimUnit(Config& config, int id) : pim_id(id), config_(config) {
 	for (int i = 0; i < 8; i++){cache_dirty[i]=false;}
 
 	cache_written = false;
+	
+	idle_row = IDLE_ROW << (config_.ro_pos + config_.shift_bits);
 }
 
 
@@ -85,6 +87,11 @@ void PimUnit::Execute() {
 	case PIM_OPERATION::ADD:
 		_ADD();
 		break;
+	case PIM_OPERATION::BN:
+	        _BN();
+	        break;
+	case PIM_OPERATION::LD: // load to cache, nothing to calculate
+	        break;
 	default:
 		std::cout << "not add" << std::endl;
 	}
@@ -107,14 +114,15 @@ unsigned PimUnit::GetSourceBank() {
 void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 	uint64_t source_addr = 0;
 
-	unsigned source_bank = GetSourceBank();
-
+	//unsigned source_bank = GetSourceBank();
+	unsigned source_bank = CRF[PPC].src_ & 0xf;
+		
 	int RW_cache_index = (int)(!operand_cache);
 	
 	uint64_t ba_offset = 0;
 
 	if (source_bank & 0b1){
-		if (base_row.ba0_ == (uint64_t)-1) {
+		if (base_row.ba0_ == idle_row) {
 			std::cerr << "ba0 not a valid base row_R" << std::endl;
 			exit(1);
 		}
@@ -124,8 +132,8 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		cache_written = true;
 	}
 	if (source_bank & 0b10) {
-		if (base_row.ba1_ == (uint64_t)-1) {
-			std::cerr << "ba1 not a valid base row" << std::endl;
+		if (base_row.ba1_ == idle_row) {
+			std::cerr << "ba1 not a valid base rowR" << std::endl;
 			exit(1);
 		}
 		ba_offset = (uint64_t)1 << (config_.ba_pos + config_.shift_bits);
@@ -134,7 +142,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		cache_written = true;
 	}
 	if (source_bank & 0b100) {
-		if (base_row.ba2_ == (uint64_t)-1) {
+		if (base_row.ba2_ == idle_row) {
 			std::cerr << "ba2 not a valid base row" << std::endl;
 			exit(1);
 		}
@@ -144,7 +152,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		cache_written = true;
 	}
 	if (source_bank & 0b1000) {
-		if (base_row.ba3_ == (uint64_t)-1) {
+		if (base_row.ba3_ == idle_row) {
 		        std::cerr << "ba3 not a valid base row" << std::endl;
 			exit(1);
 		}
@@ -163,7 +171,7 @@ void PimUnit::Pim_Write(uint64_t hex_addr, BaseRow base_row) {
 	
 	uint64_t ba_offset = 0;
 	if (cache_dirty[RW_cache_index]) {
-		if (base_row.ba0_ == (uint64_t)-1) {
+		if (base_row.ba0_ == idle_row) {
 			std::cerr << "ba0 not a valid base row_W" << std::endl;
 			std::cout << "PPC at error: " << (int)PPC << std::endl;
 		        std::cout << "LC at error: " << LC << std::endl;
@@ -177,7 +185,7 @@ void PimUnit::Pim_Write(uint64_t hex_addr, BaseRow base_row) {
 		cache_dirty[RW_cache_index] = false;
 	}
 	else if (cache_dirty[RW_cache_index + 2]) {
-		if (base_row.ba1_ == (uint64_t)-1) {
+		if (base_row.ba1_ == idle_row) {
 			std::cerr << "ba1 not a valid base row" << std::endl;
 			exit(1);
 		}
@@ -189,7 +197,7 @@ void PimUnit::Pim_Write(uint64_t hex_addr, BaseRow base_row) {
 		cache_dirty[RW_cache_index + 2] = false;
 	}
 	else if (cache_dirty[RW_cache_index + 4]) {
-		if (base_row.ba2_ == (uint64_t)-1) {
+		if (base_row.ba2_ == idle_row) {
 			std::cerr << "ba2 not a valid base row" << std::endl;
 			exit(1);
 		}
@@ -200,7 +208,7 @@ void PimUnit::Pim_Write(uint64_t hex_addr, BaseRow base_row) {
 		cache_dirty[RW_cache_index + 4] = false;
 	}
 	else if (cache_dirty[RW_cache_index + 6]) {
-		if (base_row.ba3_ == (uint64_t)-1) {
+		if (base_row.ba3_ == idle_row) {
 			std::cerr << "ba3 not a valid base row_w" << std::endl;
 			exit(1);
 		}
@@ -232,6 +240,42 @@ void PimUnit::_ADD() {
 
 	for (int i = 0; i < 16; i++) {
 		dst[i] = src0[i] + src1[i];
+	}
+}
+
+void PimUnit::_BN() {
+	unit_t* dst;
+	unit_t* srcx;
+	unit_t* srcy;
+	unit_t* srcz;
+	
+	dst = CACHE_ + (CRF[PPC].dst_ * 2 + operand_cache) * UNITS_PER_WORD;
+	cache_dirty[CRF[PPC].dst_ * 2 + operand_cache] = true;
+	
+	if(CRF[PPC].dst_ == 0){
+		srcx = CACHE_ + (2 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcy = CACHE_ + (3 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcz = CACHE_ + (1 * 2 + operand_cache) * UNITS_PER_WORD;
+	}
+	else if(CRF[PPC].dst_ == 1){
+		srcx = CACHE_ + (3 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcy = CACHE_ + (2 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcz = CACHE_ + (operand_cache) * UNITS_PER_WORD;
+	}
+	else if(CRF[PPC].dst_ == 2){
+		srcx = CACHE_ + (operand_cache) * UNITS_PER_WORD;
+		srcy = CACHE_ + (1 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcz = CACHE_ + (3 * 2 + operand_cache) * UNITS_PER_WORD;
+	}
+	else if(CRF[PPC].dst_ == 3){
+		srcx = CACHE_ + (1 * 2 + operand_cache) * UNITS_PER_WORD;
+		srcy = CACHE_ + (operand_cache) * UNITS_PER_WORD;
+		srcz = CACHE_ + (2 * 2 + operand_cache) * UNITS_PER_WORD;
+	}
+	else{ std::cerr << "not proper dst\n"; exit(1); }
+	
+	for (int i = 0; i < 16; i++) {
+		dst[i] = srcx[i] * srcy[i] + srcz[i];
 	}
 }
 

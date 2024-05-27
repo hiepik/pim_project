@@ -24,6 +24,9 @@
 
 #define MAP_SBMR             0x3fff
 #define MAP_BGMR             0x3ffe
+#define MAP_ABGMR	      0x3ffd
+
+#define IDLE_ROW	      0x3ffc
 
 #define C_NORMAL "\033[0m"
 #define C_RED    "\033[031m"
@@ -97,7 +100,6 @@ namespace dramsim3 {
         uint64_t pmemAddr_size_;
         unsigned int burstSize_;
         uint64_t clk_;
-
         uint8_t* data_temp_;
     };
 
@@ -121,13 +123,42 @@ namespace dramsim3 {
         uint8_t* x_, * y_, * z_;
         uint64_t n_;
         uint64_t addr_x_, addr_y_, addr_z_;
-        int base_row_x_, base_row_y_, base_row_z_;
+        uint64_t base_row_x_, base_row_y_, base_row_z_, base_row_idle_;
         uint64_t ukernel_access_size_;
         uint64_t ukernel_count_per_pim_;
         uint64_t row_count_;
         uint64_t op_count_;
         PimInstruction* ukernel_add_;
     };
+
+    class BatchNormTransactionGenerator : public TransactionGenerator {
+    public:
+        BatchNormTransactionGenerator(const std::string& config_file,
+            const std::string& output_dir,
+            uint64_t l,
+            uint64_t f,
+            uint8_t* x,
+            uint8_t* y,
+            uint8_t* z,
+            uint8_t* w)
+            : TransactionGenerator(config_file, output_dir),
+            l_(l), f_(f), x_(x), y_(y), z_(z), w_(w) {}
+        void Initialize() override;
+        void SetData() override;
+        void Execute() override;
+        void GetResult() override;
+        void CheckResult() override;
+
+    private:
+        uint8_t* x_, * y_, * z_, * w_;
+        uint64_t l_, f_;
+        uint64_t addr_x_, addr_y_, addr_z_, addr_w_;
+        uint64_t base_row_x_, base_row_y_, base_row_z_, base_row_w_, base_row_idle_;
+        uint64_t row_count_;
+        uint64_t op_count_;
+        PimInstruction* ukernel_bn_;
+    };
+    
     /*
     class MulTransactionGenerator : public TransactionGenerator {
     public:
