@@ -19,7 +19,7 @@ PimUnit::PimUnit(Config& config, int id) : pim_id(id), config_(config) {
 
 	cache_written = false;
 	
-	idle_row = IDLE_ROW << (config_.ro_pos + config_.shift_bits);
+	idle_row = IDLE_ROW << (config_.ro_pos + config_.shift_bits); // 528sumin use idle row instead of -1
 }
 
 
@@ -114,6 +114,8 @@ unsigned PimUnit::GetSourceBank() {
 void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 	uint64_t source_addr = 0;
 
+	// 528sumin now not using GetSourceBank()
+	// 528sumin use src in PimInstruction directly
 	//unsigned source_bank = GetSourceBank();
 	unsigned source_bank = CRF[PPC].src_ & 0xf;
 		
@@ -122,7 +124,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 	uint64_t ba_offset = 0;
 
 	if (source_bank & 0b1){
-		if (base_row.ba0_ == idle_row) {
+		if (base_row.ba0_ == idle_row) {  // 528sumin use idle row
 			std::cerr << "ba0 not a valid base row_R" << std::endl;
 			exit(1);
 		}

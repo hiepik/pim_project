@@ -96,7 +96,7 @@ namespace dramsim3 {
         base_row_x_ = addr_x_;
         base_row_y_ = addr_y_;
         base_row_z_ = addr_z_;
-        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
+        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);   // 528sumin -- made idle_row use it instead of -1
 	//std::cout << "base ba0 z real: " << std::hex << base_row_z_ << std::endl;
         row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
         op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
@@ -105,16 +105,18 @@ namespace dramsim3 {
         
 
         // PimInstruction undone
-        // for right now (type, dst, src, imm0 =0, imm1 =0)
+        // for right now (type, dst, src, imm0 =0, imm1 =0) 528sumin -- add src, its a unsigned. 
+        // 528sumin src have 4 bit, 0b(bank3)(bank2)(bank1)(bank0)
+        // 528sumin 1 when use src, 0 when not src
         ukernel_add_[0] = PimInstruction(PIM_OPERATION::ADD, 1, 0b0101);
-        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7); // 528sumin jump command changed too (src = 0)
         ukernel_add_[2] = PimInstruction(PIM_OPERATION::ADD, 0, 0b1010);
         ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
         ukernel_add_[4] = PimInstruction(PIM_OPERATION::ADD, 3, 0b0101);
         ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
         ukernel_add_[6] = PimInstruction(PIM_OPERATION::ADD, 2, 0b1010);
         ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
-        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);
+        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);      // 528sumin exit command changed (src = 0)
                 
     }
 
@@ -199,7 +201,7 @@ namespace dramsim3 {
             BaseRow base_row_;
             switch (ba) {
             case 0:
-                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, base_row_idle_);
+                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, base_row_idle_); // 528sumin -1 --> base_row_idle
                 break;
             case 1:
                 base_row_ = BaseRow(base_row_z_, base_row_x_, base_row_idle_, base_row_y_);
@@ -231,7 +233,7 @@ namespace dramsim3 {
 
                     // send Source Bank Read
                     for (int ch = 0; ch < NUM_CHANNEL; ch++) {
-                        Address addr(ch, 0, 0,  ba, row_offset, col);
+                        Address addr(ch, 0, 0,  ba, row_offset, col); // 528sumin --> just put row_offset instead
                         uint64_t hex_addr = ReverseAddressMapping(addr);
                         TryAddTransaction(hex_addr, false, data_temp_); 
                     }

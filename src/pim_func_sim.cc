@@ -144,6 +144,7 @@ void PimFuncSim::PushCRF(PimInstruction* kernel) {
     }
 }
 
+// 528sumin --> changed the way pim_func_sim encode the command address and broadcast to all pim_units
 void PimFuncSim::PIM_Read(Command cmd) {
     int channel_ = cmd.Channel();
     // cmd is the one for bank0
@@ -158,6 +159,7 @@ void PimFuncSim::PIM_Read(Command cmd) {
     }
 }
 
+// 528sumin --> changed the way pim_func_sim encode the command address and broadcast to all pim_units
 void PimFuncSim::PIM_Write(Command cmd) {
     int channel_ = cmd.Channel();
     Address addr = config_.AddressMapping(cmd.hex_addr);

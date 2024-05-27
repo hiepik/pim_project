@@ -22,6 +22,7 @@ enum class PIM_OPERATION {
 	GEMV	
 };
 
+// 528sumin add command and src_
 class PimInstruction {
 public:
 	PimInstruction():
