@@ -92,32 +92,32 @@ namespace dramsim3 {
         addr_x_ = 0;
         addr_y_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
         addr_z_ = addr_y_ + Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
-
+        
+	// base row of operands
         base_row_x_ = addr_x_;
         base_row_y_ = addr_y_;
         base_row_z_ = addr_z_;
-        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);   // 528sumin -- made idle_row use it instead of -1
-	//std::cout << "base ba0 z real: " << std::hex << base_row_z_ << std::endl;
-        row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
-        op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
+        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
+
+	// row_count_:	number of rows involved in the calculation
+        row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); 
+        // op_count_: 	number of burst per bank
+        op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   
 
         ukernel_add_ = (PimInstruction*)malloc(sizeof(PimInstruction) * 32);
         
-
-        // PimInstruction undone
-        // for right now (type, dst, src, imm0 =0, imm1 =0) 528sumin -- add src, its a unsigned. 
-        // 528sumin src have 4 bit, 0b(bank3)(bank2)(bank1)(bank0)
-        // 528sumin 1 when use src, 0 when not src
+        // PimInstruction(type, dst, src, imm0 =0, imm1 =0)  "pim_config.h"
+        // src have 4 bit, 0b(bank3)(bank2)(bank1)(bank0)
+        // set dst and src to be 0 when unused (must!!!)
         ukernel_add_[0] = PimInstruction(PIM_OPERATION::ADD, 1, 0b0101);
-        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511); // 528sumin jump command changed too (src = 0)
+        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1); // 531up
         ukernel_add_[2] = PimInstruction(PIM_OPERATION::ADD, 0, 0b1010);
-        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
+        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_add_[4] = PimInstruction(PIM_OPERATION::ADD, 3, 0b0101);
-        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
+        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_add_[6] = PimInstruction(PIM_OPERATION::ADD, 2, 0b1010);
-        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
-        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);      // 528sumin exit command changed (src = 0)
-                
+        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
+        ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);             
     }
 
 
@@ -126,19 +126,13 @@ namespace dramsim3 {
         // strided size of one operand with one computation part(minimum)
         uint64_t strided_size = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK);
 
-#ifdef debug_mode
-        std::cout << "HOST:\tSet input data\n";
-#endif
-
         uint64_t address;
-
         // Write input data x to physical memory
         for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
             address = ADDR_CONV0(addr_x_ + offset);
             TryAddTransaction(address, true, x_ + offset);
         }
         
-
         // Write input data y to physical memory
         for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
             address = ADDR_CONV2(addr_y_ + offset);
@@ -146,10 +140,9 @@ namespace dramsim3 {
         }
         Barrier();
 
-        // 일단은 이 방식으로 모든 PIM UNIT에 CRF를 전송
+        // push ukernel_add_ to every pim_unit "pim_func_sim.cc"
         memory_system_.PushCRF(ukernel_add_); 
 /*
-
         SETCRF() 기능 나중에 구현
 
 #ifdef debug_mode
@@ -174,7 +167,6 @@ namespace dramsim3 {
         /**************************************************
         * mode transition part -> to PIM-BG-OP MODE
         * *************************************************/
-
         *data_temp_ |= 1;
 #ifdef debug_mode
         std::cout << "\nHOST:\t[1] SB -> BG \n";
@@ -188,20 +180,22 @@ namespace dramsim3 {
 
         // 모든 controller에 모드 변환을 알림
         // 아직 따로 모드 변환을 알리지 않으면 오류가 나는 상황
-        memory_system_.SetMode(1); // tell memory controller to change the controllers mode to BG mode
+        // !!! must call SetMode(0) after BG operation is finished
+        memory_system_.SetMode(1); // tell memory controller to change the controller mode to BG mode
 
         // write trans가 2개 이상일 때 부터 write transaction이 cmd로 변환된다.
+        // must be set to 1 before BG-operation
+        // must be set to -1 after BG-operation finished
         memory_system_.SetWriteBufferThreshold(1);
 
-        // X가 4개의 bank 중하나에 있겠지 --> 총 4번 진행
+        // dst should be changed 4 times
         for (int ba = 0; ba < 4; ba++) {
-            // 각 bank마다 base row가 다르기 때문에 이 것을 기록해놓아야함
-            // ex) bank 0: X, bank1: Z bank2: Y bank3: NaN
-            // X+Y=Z, therefore bank0+bank2=bank1
+            // for every destination change, base_row should be altered
+            // for unused row, use base_row_idle_
             BaseRow base_row_;
             switch (ba) {
             case 0:
-                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, base_row_idle_); // 528sumin -1 --> base_row_idle
+                base_row_ = BaseRow(base_row_x_, base_row_z_, base_row_y_, base_row_idle_);
                 break;
             case 1:
                 base_row_ = BaseRow(base_row_z_, base_row_x_, base_row_idle_, base_row_y_);
@@ -212,28 +206,28 @@ namespace dramsim3 {
             case 3:
                 base_row_ = BaseRow(base_row_idle_, base_row_y_, base_row_z_, base_row_x_);
             }
+            // at Every DST loop, base row should be updated by SetBaseRow
             memory_system_.SetBaseRow(base_row_);  // 메모리 시스템에 base row 보낸다.
-
-            // dramsim에서의 cycle 은 전부 각 channel의 첫번째 bank에서 이루어진다.
-            // 따라서 BG 모드에서는 모든 transaction을 bank 0로 보낸다.
 
             /*************************************************
             * Send Transaction
             **************************************************/
-            // now which variable bank represent is defined
-            // should calculate every row in this defined state
+            
+            // for a given dst bank, calculate every row (row_offset: 0~(row_count_-1))
             for (int row_offset = 0; row_offset < row_count_; row_offset++) {
                 * data_temp_ |= 1;
-                
-                for (int col = 0; col < NUM_WORD_PER_ROW; col++) {
-                    
-                    // all X finished, then break
+                // for every col in current row, send read transaction to execute PIM OP
+                for (int col = 0; col < NUM_WORD_PER_ROW; col++) {                  
+                    // stop reading next column when all the operands are read
                     if (row_offset * NUM_WORD_PER_ROW + col == op_count_)
                         break;
 
                     // send Source Bank Read
                     for (int ch = 0; ch < NUM_CHANNEL; ch++) {
-                        Address addr(ch, 0, 0,  ba, row_offset, col); // 528sumin --> just put row_offset instead
+                        // must have, channel, bank, row_offset, column
+                        // "pim_func_sim.cc" will decode this information and distribute command to every banks
+                        // "controller" use this information to calculate proper cycle"
+                        Address addr(ch, 0, 0,  ba, row_offset, col);
                         uint64_t hex_addr = ReverseAddressMapping(addr);
                         TryAddTransaction(hex_addr, false, data_temp_); 
                     }
@@ -241,29 +235,29 @@ namespace dramsim3 {
 
                 // write transaction to drain out the results 
                 // 2*CCD_L의 딜레이를 계산하기 위해 추가된다.
+                // !!! this is a must! for every single row
                 // 해당하는 row의 계산이 다 끝나면 2번의 사이클 동안 기다려야 모든 값이 bank에 저장된다.
                 // 이 시간을 DRAMSIM에 구현하기 위해 write transaction을 매 row 계산마다 2번씩 가해주어야 한다.
                 for (int i = 0; i < 2; i++) {
                     for (int ch = 0; ch < NUM_CHANNEL; ch++) {
-                        Address addr(ch, 0, 0, ba, row_offset, i); // at this time, col does not matter
+                        Address addr(ch, 0, 0, ba, row_offset, i); // value of column does not matter
                         uint64_t hex_addr = ReverseAddressMapping(addr);
-			 // putting 2 write command in bank0 at same row is the only thing that matters
                         TryAddTransaction(hex_addr, true, data_temp_);
                     }
                 }
 
-                Barrier(); // 1 row finished, wait till all the row operations are done
+                Barrier(); // is a must!!!, should make a barrier at every row operation
             }
         }
-        memory_system_.SetMode(0); // tell memory sysem to change the controllers mode to SB mode
-        memory_system_.SetWriteBufferThreshold(-1); // change threshold to default value
-
+        // for every DST, calculation is finished
+        memory_system_.SetMode(0); 			// tell memory sysem to change the controllers mode to SB mode
+        memory_system_.SetWriteBufferThreshold(-1); 	// change threshold to default value
     }
 
     // Read PIM computation result from physical memory
-    // Z를 읽기만 하면 된다.
     void AddTransactionGenerator::GetResult() {
-        // Mode transition: BG -> SB
+        // Mode transition: BG -> SB (to claculate cycles for mode change)
+        // does not do anything, just for cycle calculation
 #ifdef debug_mode
         std::cout << "HOST:\t[4] AB -> SB \n";
 #endif
@@ -294,11 +288,12 @@ namespace dramsim3 {
         for (int i = 0; i < n_; i++) {
             sum = ((uint16_t*)x_)[i] + ((uint16_t*)y_)[i];
             err += ABS(((uint16_t*)z_)[i] - sum);    
-            //std::cout << "real: " << sum << " result: " << ((uint16_t*)z_)[i] << std::endl;
         }
-
         std::cout << "ERROR : " << err << std::endl;
     }
+
+
+    // MUL almost similar to ADD
 
     // Initialize variables and ukernel
     void MulTransactionGenerator::Initialize() {
@@ -312,24 +307,21 @@ namespace dramsim3 {
         base_row_z_ = addr_z_;
         base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
         
-        row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
-        op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
+        row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); 
+        op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   
 
         ukernel_mul_ = (PimInstruction*)malloc(sizeof(PimInstruction) * 32);
         
-
-        // PimInstruction undone
-        // for right now (type, dst, src, imm0 =0, imm1 =0)
-       
+        // PimInstruction(type, dst, src, imm0 =0, imm1 =0)      
         ukernel_mul_[0] = PimInstruction(PIM_OPERATION::MUL, 2, 0b0011);
-        ukernel_mul_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7); // 528sumin jump command changed too (src = 0)
+        ukernel_mul_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1); 
         ukernel_mul_[2] = PimInstruction(PIM_OPERATION::MUL, 3, 0b0011);
-        ukernel_mul_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_mul_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_mul_[4] = PimInstruction(PIM_OPERATION::MUL, 0, 0b1100);
-        ukernel_mul_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_mul_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_mul_[6] = PimInstruction(PIM_OPERATION::MUL, 1, 0b1100);
-        ukernel_mul_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
-        ukernel_mul_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);      // 528sumin exit command changed (src = 0)               
+        ukernel_mul_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
+        ukernel_mul_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);             
     }
     
     // Write operand data and μkernel to physical memory and PIM registers
@@ -342,14 +334,12 @@ namespace dramsim3 {
 #endif
 
         uint64_t address;
-
         // Write input data x to physical memory
         for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
             address = ADDR_CONV0(addr_x_ + offset);
             TryAddTransaction(address, true, x_ + offset);
         }
         
-
         // Write input data y to physical memory
         for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
             address = ADDR_CONV1(addr_y_ + offset);
@@ -357,13 +347,11 @@ namespace dramsim3 {
         }
         Barrier();
 
-        // 일단은 이 방식으로 모든 PIM UNIT에 CRF를 전송
         memory_system_.PushCRF(ukernel_mul_); 
     }
 
     // Execute PIM computation
     void MulTransactionGenerator::Execute() {
-
         // mode transition
         /**************************************************
         * mode transition part -> to PIM-BG-OP MODE
@@ -379,14 +367,10 @@ namespace dramsim3 {
         }
         Barrier();
 
-        // 모든 controller에 모드 변환을 알림
-        // 아직 따로 모드 변환을 알리지 않으면 오류가 나는 상황
         memory_system_.SetMode(1); // tell memory controller to change the controllers mode to BG mode
 
-        // write trans가 2개 이상일 때 부터 write transaction이 cmd로 변환된다.
         memory_system_.SetWriteBufferThreshold(1);
 
-        // X가 4개의 bank 중하나에 있겠지 --> 총 4번 진행
         for (int ba = 0; ba < 4; ba++) {
             BaseRow base_row_;
             switch (ba) {
@@ -402,10 +386,7 @@ namespace dramsim3 {
             case 3:
                 base_row_ = BaseRow(base_row_idle_, base_row_z_, base_row_y_, base_row_x_);
             }
-            memory_system_.SetBaseRow(base_row_);  // 메모리 시스템에 base row 보낸다.
-
-            // dramsim에서의 cycle 은 전부 각 channel의 첫번째 bank에서 이루어진다.
-            // 따라서 BG 모드에서는 모든 transaction을 bank 0로 보낸다.
+            memory_system_.SetBaseRow(base_row_); 
 
             /*************************************************
             * Send Transaction
@@ -481,7 +462,6 @@ namespace dramsim3 {
         for (int i = 0; i < n_; i++) {
             prod = ((uint16_t*)x_)[i] * ((uint16_t*)y_)[i];
             err += ABS(((uint16_t*)z_)[i] - prod); 
-            // std::cout << "real: " << prod << " cal: " << ((uint16_t*)z_)[i] << std::endl;   
         }
 
         std::cout << "ERROR : " << err << std::endl;
@@ -509,19 +489,19 @@ namespace dramsim3 {
         ukernel_bn_[0] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
         ukernel_bn_[1] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
         ukernel_bn_[2] =  PimInstruction(PIM_OPERATION::BN, 2, 0b0001);
-        ukernel_bn_[3] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[3] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_bn_[4] =  PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
         ukernel_bn_[5] =  PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
         ukernel_bn_[6] =  PimInstruction(PIM_OPERATION::BN, 3, 0b0010);
-        ukernel_bn_[7] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[7] =  PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_bn_[8] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
         ukernel_bn_[9] =  PimInstruction(PIM_OPERATION::LD, 0, 0b1010);
         ukernel_bn_[10] = PimInstruction(PIM_OPERATION::BN, 0, 0b0100);
-        ukernel_bn_[11] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[11] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_bn_[12] = PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
         ukernel_bn_[13] = PimInstruction(PIM_OPERATION::LD, 0, 0b0101);
         ukernel_bn_[14] = PimInstruction(PIM_OPERATION::BN, 1, 0b1000);
-        ukernel_bn_[15] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_bn_[15] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, op_count_-1);
         ukernel_bn_[16] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);
     
     }

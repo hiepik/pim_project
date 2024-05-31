@@ -9,7 +9,7 @@ int main(int argc, const char** argv) {
     srand(time(NULL));
 
     //<mod> need to add code to choose operation
-    std::string pim_api = "mul";
+    std::string pim_api = "bn";
     // have to initiallize config file and output dir
     std::string config_file = "../configs/HBM2_4Gb_test.ini";
     std::string output_dir = "output.txt";
@@ -46,7 +46,7 @@ int main(int argc, const char** argv) {
     
     else if (pim_api == "mul") {
         std::cout << "Mul called\n";
-        uint64_t n = 4096*8;
+        uint64_t n = 4096*512;
 
         // Define input vector x, y
         uint8_t *x = (uint8_t *) malloc(sizeof(uint16_t) * n);
@@ -91,7 +91,7 @@ int main(int argc, const char** argv) {
                                                     m, n, A, x, y);
     */
     else if (pim_api == "bn") {
-        uint64_t l = 8;
+        uint64_t l = 512;
         uint64_t f = 4096;
 
         uint64_t num_duplicate = 4096 / f;
