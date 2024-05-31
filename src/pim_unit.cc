@@ -87,6 +87,9 @@ void PimUnit::Execute() {
 	case PIM_OPERATION::ADD:
 		_ADD();
 		break;
+	case PIM_OPERATION::MUL:
+		_MUL();
+		break;
 	case PIM_OPERATION::BN:
 	        _BN();
 	        break;
@@ -242,6 +245,28 @@ void PimUnit::_ADD() {
 
 	for (int i = 0; i < 16; i++) {
 		dst[i] = src0[i] + src1[i];
+	}
+}
+
+void PimUnit::_MUL() {
+	unit_t* dst;
+	unit_t* src0;
+	unit_t* src1;
+
+	dst = CACHE_ + (CRF[PPC].dst_ * 2 + operand_cache) * UNITS_PER_WORD;
+	cache_dirty[CRF[PPC].dst_ * 2 + operand_cache] = true;
+
+	if (CRF[PPC].dst_ & 0b10) {
+		src0 = CACHE_ + operand_cache * UNITS_PER_WORD;
+		src1 = CACHE_ + (1 * 2 + operand_cache) * UNITS_PER_WORD;
+	}
+	else {
+		src0 = CACHE_ + (2 * 2 + operand_cache) * UNITS_PER_WORD;
+		src1 = CACHE_ + (3 * 2 + operand_cache) * UNITS_PER_WORD;
+	}
+
+	for (int i = 0; i < 16; i++) {
+		dst[i] = src0[i] * src1[i];
 	}
 }
 

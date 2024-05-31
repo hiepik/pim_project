@@ -9,7 +9,7 @@ int main(int argc, const char** argv) {
     srand(time(NULL));
 
     //<mod> need to add code to choose operation
-    std::string pim_api = "bn";
+    std::string pim_api = "mul";
     // have to initiallize config file and output dir
     std::string config_file = "../configs/HBM2_4Gb_test.ini";
     std::string output_dir = "output.txt";
@@ -24,7 +24,7 @@ int main(int argc, const char** argv) {
 
     if (pim_api == "add") {
         //uint64_t n = args::get(add_n_arg);
-        uint64_t n = 4096*8;   // have to make code to get n as an input
+        uint64_t n = 4096*512;   // have to make code to get n as an input
 
         // Define input vector x, y
         uint8_t* x = (uint8_t*)malloc(sizeof(uint16_t) * n);
@@ -43,28 +43,30 @@ int main(int argc, const char** argv) {
         tx_generator = new AddTransactionGenerator(config_file, output_dir,
             n, x, y, z);
     }
-    /*
+    
     else if (pim_api == "mul") {
-        uint64_t n = args::get(mul_n_arg);
+        std::cout << "Mul called\n";
+        uint64_t n = 4096*8;
 
         // Define input vector x, y
         uint8_t *x = (uint8_t *) malloc(sizeof(uint16_t) * n);
         uint8_t *y = (uint8_t *) malloc(sizeof(uint16_t) * n);
         // Define output vector z
         uint8_t *z = (uint8_t *) malloc(sizeof(uint16_t) * n);
-
-        // Fill input operands with random value
-        for (int i=0; i< n; i++) {
-            half h_x = half(f32rng());
-            half h_y = half(f32rng());
-            ((uint16_t*)x)[i] = *reinterpret_cast<uint16_t*>(&h_x);
-            ((uint16_t*)y)[i] = *reinterpret_cast<uint16_t*>(&h_y);
+        
+ 	// Fill input operands with random value
+        // for debug i filled it with non random value
+        for (int i = 0; i < n; i++) {
+            ((uint16_t*)x)[i] = (uint16_t)(i);
+            ((uint16_t*)y)[i] = (uint16_t)(2);
         }
-
+        
         // Define Transaction generator for ADD computation
         tx_generator = new MulTransactionGenerator(config_file, output_dir,
                                                    n, x, y, z);
-    } else if (pim_api == "gemv") {
+    } 
+    /*
+    else if (pim_api == "gemv") {
         uint64_t m = args::get(gemv_m_arg);
         uint64_t n = args::get(gemv_n_arg);
 

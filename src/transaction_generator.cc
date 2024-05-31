@@ -109,13 +109,13 @@ namespace dramsim3 {
         // 528sumin src have 4 bit, 0b(bank3)(bank2)(bank1)(bank0)
         // 528sumin 1 when use src, 0 when not src
         ukernel_add_[0] = PimInstruction(PIM_OPERATION::ADD, 1, 0b0101);
-        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7); // 528sumin jump command changed too (src = 0)
+        ukernel_add_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511); // 528sumin jump command changed too (src = 0)
         ukernel_add_[2] = PimInstruction(PIM_OPERATION::ADD, 0, 0b1010);
-        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
         ukernel_add_[4] = PimInstruction(PIM_OPERATION::ADD, 3, 0b0101);
-        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
         ukernel_add_[6] = PimInstruction(PIM_OPERATION::ADD, 2, 0b1010);
-        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_add_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 511);
         ukernel_add_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);      // 528sumin exit command changed (src = 0)
                 
     }
@@ -300,6 +300,192 @@ namespace dramsim3 {
         std::cout << "ERROR : " << err << std::endl;
     }
 
+    // Initialize variables and ukernel
+    void MulTransactionGenerator::Initialize() {
+        // base address of operands
+        addr_x_ = 0;
+        addr_y_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
+        addr_z_ = addr_y_ + Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK);
+
+        base_row_x_ = addr_x_;
+        base_row_y_ = addr_y_;
+        base_row_z_ = addr_z_;
+        base_row_idle_ = IDLE_ROW << (config_->ro_pos + config_->shift_bits);
+        
+        row_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_ROW * NUM_BANK) / (SIZE_ROW * NUM_BANK); // 총 몇개의 row 계산이 필요한가?
+        op_count_ = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK) / (SIZE_WORD*NUM_BANK);   // bank당 총 몇 번의 계산이 있을 것인가? 
+
+        ukernel_mul_ = (PimInstruction*)malloc(sizeof(PimInstruction) * 32);
+        
+
+        // PimInstruction undone
+        // for right now (type, dst, src, imm0 =0, imm1 =0)
+       
+        ukernel_mul_[0] = PimInstruction(PIM_OPERATION::MUL, 2, 0b0011);
+        ukernel_mul_[1] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7); // 528sumin jump command changed too (src = 0)
+        ukernel_mul_[2] = PimInstruction(PIM_OPERATION::MUL, 3, 0b0011);
+        ukernel_mul_[3] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_mul_[4] = PimInstruction(PIM_OPERATION::MUL, 0, 0b1100);
+        ukernel_mul_[5] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_mul_[6] = PimInstruction(PIM_OPERATION::MUL, 1, 0b1100);
+        ukernel_mul_[7] = PimInstruction(PIM_OPERATION::JUMP, 0, 0, -1, 7);
+        ukernel_mul_[8] = PimInstruction(PIM_OPERATION::EXIT, 0, 0);      // 528sumin exit command changed (src = 0)               
+    }
+    
+    // Write operand data and μkernel to physical memory and PIM registers
+    void MulTransactionGenerator::SetData() {
+        // strided size of one operand with one computation part(minimum)
+        uint64_t strided_size = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK);
+
+#ifdef debug_mode
+        std::cout << "HOST:\tSet input data\n";
+#endif
+
+        uint64_t address;
+
+        // Write input data x to physical memory
+        for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
+            address = ADDR_CONV0(addr_x_ + offset);
+            TryAddTransaction(address, true, x_ + offset);
+        }
+        
+
+        // Write input data y to physical memory
+        for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
+            address = ADDR_CONV1(addr_y_ + offset);
+            TryAddTransaction(address, true, y_ + offset);
+        }
+        Barrier();
+
+        // 일단은 이 방식으로 모든 PIM UNIT에 CRF를 전송
+        memory_system_.PushCRF(ukernel_mul_); 
+    }
+
+    // Execute PIM computation
+    void MulTransactionGenerator::Execute() {
+
+        // mode transition
+        /**************************************************
+        * mode transition part -> to PIM-BG-OP MODE
+        * *************************************************/
+        *data_temp_ |= 1;
+#ifdef debug_mode
+        std::cout << "\nHOST:\t[1] SB -> BG \n";
+#endif
+        for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+            Address addr(ch, 0, 0, 0, MAP_BGMR, 0);
+            uint64_t hex_addr = ReverseAddressMapping(addr);
+            TryAddTransaction(hex_addr, false, data_temp_);
+        }
+        Barrier();
+
+        // 모든 controller에 모드 변환을 알림
+        // 아직 따로 모드 변환을 알리지 않으면 오류가 나는 상황
+        memory_system_.SetMode(1); // tell memory controller to change the controllers mode to BG mode
+
+        // write trans가 2개 이상일 때 부터 write transaction이 cmd로 변환된다.
+        memory_system_.SetWriteBufferThreshold(1);
+
+        // X가 4개의 bank 중하나에 있겠지 --> 총 4번 진행
+        for (int ba = 0; ba < 4; ba++) {
+            BaseRow base_row_;
+            switch (ba) {
+            case 0:
+                base_row_ = BaseRow(base_row_x_, base_row_y_, base_row_z_, base_row_idle_);
+                break;
+            case 1:
+                base_row_ = BaseRow(base_row_y_, base_row_x_, base_row_idle_, base_row_z_);
+                break;
+            case 2:
+                base_row_ = BaseRow(base_row_z_, base_row_idle_, base_row_x_, base_row_y_);
+                break;
+            case 3:
+                base_row_ = BaseRow(base_row_idle_, base_row_z_, base_row_y_, base_row_x_);
+            }
+            memory_system_.SetBaseRow(base_row_);  // 메모리 시스템에 base row 보낸다.
+
+            // dramsim에서의 cycle 은 전부 각 channel의 첫번째 bank에서 이루어진다.
+            // 따라서 BG 모드에서는 모든 transaction을 bank 0로 보낸다.
+
+            /*************************************************
+            * Send Transaction
+            **************************************************/
+            // now which variable bank represent is defined
+            // should calculate every row in this defined state
+            for (int row_offset = 0; row_offset < row_count_; row_offset++) {
+                * data_temp_ |= 1;
+                
+                for (int col = 0; col < NUM_WORD_PER_ROW; col++) {
+                    
+                    // all X finished, then break
+                    if (row_offset * NUM_WORD_PER_ROW + col == op_count_)
+                        break;
+
+                    // send Source Bank Read
+                    for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+                        Address addr(ch, 0, 0,  ba, row_offset, col);
+                        uint64_t hex_addr = ReverseAddressMapping(addr);
+                        TryAddTransaction(hex_addr, false, data_temp_); 
+                    }
+                }
+
+                // write transaction to drain out the results 
+                // 2*CCD_L의 딜레이를 계산하기 위해 추가된다.
+                for (int i = 0; i < 2; i++) {
+                    for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+                        Address addr(ch, 0, 0, ba, row_offset, i); // at this time, col does not matter
+                        uint64_t hex_addr = ReverseAddressMapping(addr);
+			 // putting 2 write command in bank0 at same row is the only thing that matters
+                        TryAddTransaction(hex_addr, true, data_temp_);
+                    }
+                }
+
+                Barrier(); // 1 row finished, wait till all the row operations are done
+            }
+        }
+        memory_system_.SetMode(0); // tell memory sysem to change the controllers mode to SB mode
+        memory_system_.SetWriteBufferThreshold(-1); // change threshold to default value
+    }
+    
+    // Read PIM computation result from physical memory
+    // Z를 읽기만 하면 된다.
+    void MulTransactionGenerator::GetResult() {
+        // Mode transition: BG -> SB
+#ifdef debug_mode
+        std::cout << "HOST:\t[4] AB -> SB \n";
+#endif
+        for (int ch = 0; ch < NUM_CHANNEL; ch++) {
+            Address addr(ch, 0, 0, 0, MAP_SBMR, 0);
+            uint64_t hex_addr = ReverseAddressMapping(addr);
+            TryAddTransaction(hex_addr, false, data_temp_);
+        }
+        Barrier();
+
+        uint64_t strided_size = Ceiling(n_ * UNIT_SIZE, SIZE_WORD * NUM_BANK);
+        // Read output data z
+#ifdef debug_mode
+        std::cout << "\nHOST:\tRead output data z\n";
+#endif
+        for (int offset = 0; offset < strided_size; offset += SIZE_WORD) {
+            uint64_t address;
+            address = ADDR_CONV2(addr_z_ + offset);
+            TryAddTransaction(address, false, z_ + offset);
+        }
+        Barrier();
+    }
+    
+    // Calculate error between the result of PIM computation and actual answer
+    void MulTransactionGenerator::CheckResult() {
+        int err = 0;
+        uint16_t prod;
+        for (int i = 0; i < n_; i++) {
+            prod = ((uint16_t*)x_)[i] * ((uint16_t*)y_)[i];
+            err += ABS(((uint16_t*)z_)[i] - prod); 
+            // std::cout << "real: " << prod << " cal: " << ((uint16_t*)z_)[i] << std::endl;   
+        }
+
+        std::cout << "ERROR : " << err << std::endl;
+    }
     
     void BatchNormTransactionGenerator::Initialize() {
         // base address of operands

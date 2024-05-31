@@ -130,6 +130,34 @@ namespace dramsim3 {
         uint64_t op_count_;
         PimInstruction* ukernel_add_;
     };
+    
+    class MulTransactionGenerator : public TransactionGenerator {
+    public:
+        MulTransactionGenerator(const std::string& config_file,
+            const std::string& output_dir,
+            uint64_t n,
+            uint8_t* x,
+            uint8_t* y,
+            uint8_t* z)
+            : TransactionGenerator(config_file, output_dir),
+            n_(n), x_(x), y_(y), z_(z) {}
+        void Initialize() override;
+        void SetData() override;
+        void Execute() override;
+        void GetResult() override;
+        void CheckResult() override;
+
+    private:
+        uint8_t* x_, * y_, * z_;
+        uint64_t n_;
+        uint64_t addr_x_, addr_y_, addr_z_;
+        uint64_t base_row_x_, base_row_y_, base_row_z_, base_row_idle_;
+        uint64_t ukernel_access_size_;
+        uint64_t ukernel_count_per_pim_;
+        uint64_t row_count_;
+        uint64_t op_count_;
+        PimInstruction* ukernel_mul_;
+    };
 
     class BatchNormTransactionGenerator : public TransactionGenerator {
     public:

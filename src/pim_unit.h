@@ -41,6 +41,7 @@ public:
 	unsigned GetSourceBank();
 
 	void _ADD();
+	void _MUL();
 	void _BN();
 
 	unit_t* CACHE_;
