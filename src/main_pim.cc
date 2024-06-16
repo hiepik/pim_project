@@ -9,7 +9,7 @@ int main(int argc, const char** argv) {
     srand(time(NULL));
 
     //<mod> need to add code to choose operation
-    std::string pim_api = "bn";
+    std::string pim_api = "gemv";
     // have to initiallize config file and output dir
     std::string config_file = "../configs/HBM2_4Gb_test.ini";
     std::string output_dir = "output.txt";
@@ -24,7 +24,7 @@ int main(int argc, const char** argv) {
 
     if (pim_api == "add") {
         //uint64_t n = args::get(add_n_arg);
-        uint64_t n = 4096*512;   // have to make code to get n as an input
+        uint64_t n = 4096*32;   // have to make code to get n as an input
 
         // Define input vector x, y
         uint8_t* x = (uint8_t*)malloc(sizeof(uint16_t) * n);
@@ -38,7 +38,6 @@ int main(int argc, const char** argv) {
             ((uint16_t*)x)[i] = (uint16_t)(i);
             ((uint16_t*)y)[i] = (uint16_t)1;
         }
-
         // Define Transaction generator for ADD computation
         tx_generator = new AddTransactionGenerator(config_file, output_dir,
             n, x, y, z);
@@ -65,10 +64,10 @@ int main(int argc, const char** argv) {
         tx_generator = new MulTransactionGenerator(config_file, output_dir,
                                                    n, x, y, z);
     } 
-    /*
+
     else if (pim_api == "gemv") {
-        uint64_t m = args::get(gemv_m_arg);
-        uint64_t n = args::get(gemv_n_arg);
+        uint64_t m = 4096;
+        uint64_t n = 4096;
 
         // Define input matrix A, vector x
         uint8_t *A = (uint8_t *) malloc(sizeof(uint16_t) * m * n);
@@ -77,19 +76,18 @@ int main(int argc, const char** argv) {
         uint8_t *y = (uint8_t *) malloc(sizeof(uint16_t) * m);
 
         // Fill input operands with random value
-        for (int i=0; i< n; i++) {
-            half h_x = half(f32rng());
-            ((uint16_t*)x)[i] = *reinterpret_cast<uint16_t*>(&h_x);
+        for (int i=0; i<n; i++) {
+            ((uint16_t*)x)[i] = (uint16_t)(i+1);
             for (int j=0; j< m; j++) {
-                half h_A = half(f32rng());
-                ((uint16_t*)A)[j*n+i] = *reinterpret_cast<uint16_t*>(&h_A);
+                ((uint16_t*)A)[j*n+i] = (uint16_t)(1);
             }
         }
 
         // Define Transaction generator for GEMV computation
         tx_generator = new GemvTransactionGenerator(config_file, output_dir,
                                                     m, n, A, x, y);
-    */
+    }
+
     else if (pim_api == "bn") {
         uint64_t l = 512;
         uint64_t f = 4096;

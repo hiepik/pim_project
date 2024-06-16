@@ -25,6 +25,7 @@
 #define MAP_SBMR             0x3fff
 #define MAP_BGMR             0x3ffe
 #define MAP_ABGMR	      0x3ffd
+#define MAP_SRF	      0x3ffb
 
 #define IDLE_ROW	      0x3ffc
 
@@ -38,6 +39,8 @@
 #define ADDR_CONV1(X) ((X)^0x00000200)
 #define ADDR_CONV2(X) ((X)^0x00000400)
 #define ADDR_CONV3(X) ((X)^0x00000600)
+
+#define ADDR_CONVG(X) (((X)&0xfffffffffffe3ff) | (((X)&0xc00)<<1) | (((X)&0x1000)>>2));
 
 #define ABS(X) ((X) < 0 ? -(X) : (X))
 
@@ -187,31 +190,6 @@ namespace dramsim3 {
         PimInstruction* ukernel_bn_;
     };
     
-    /*
-    class MulTransactionGenerator : public TransactionGenerator {
-    public:
-        MulTransactionGenerator(const std::string& config_file,
-            const std::string& output_dir,
-            uint64_t n,
-            uint8_t* x,
-            uint8_t* y,
-            uint8_t* z)
-            : TransactionGenerator(config_file, output_dir),
-            n_(n), x_(x), y_(y), z_(z) {}
-        void Initialize() override;
-        void SetData() override;
-        void Execute() override;
-        void GetResult() override;
-        void CheckResult() override;
-
-    private:
-        uint8_t* x_, * y_, * z_;
-        uint64_t n_;
-        uint64_t addr_x_, addr_y_, addr_z_;
-        uint64_t ukernel_access_size_;
-        uint64_t ukernel_count_per_pim_;
-        uint32_t* ukernel_mul_;
-    };
 
     class GemvTransactionGenerator : public TransactionGenerator {
     public:
@@ -231,18 +209,19 @@ namespace dramsim3 {
         void CheckResult() override;
 
     private:
-        void ExecuteBank(int bank);
-
-        uint8_t* A_, * x_, * y_;
+        uint8_t *A_, *x_, *y_;
         uint8_t* A_T_;
         uint64_t m_, n_;
-        uint64_t addr_A_, addr_y_;
+        uint64_t addr_A_, addr_A2_, addr_y_;
+        uint64_t base_row_A_, base_row_A2_, base_row_y_, base_row_idle_;
         uint64_t ukernel_access_size_;
         uint64_t ukernel_count_per_pim_;
-        uint32_t* ukernel_gemv_;
-        uint32_t* ukernel_gemv_last_;
+        PimInstruction* ukernel_gemv_;
+        PimInstruction* ukernel_gemv_last_;
+        PimInstruction* ukernel_gemv_last__;
     };
 
+/*
     class BatchNormTransactionGenerator : public TransactionGenerator {
     public:
         BatchNormTransactionGenerator(const std::string& config_file,

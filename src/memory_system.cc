@@ -7,7 +7,6 @@ MemorySystem::MemorySystem(const std::string &config_file,
                            std::function<void(uint64_t)> write_callback)
     : config_(new Config(config_file, output_dir)) {
     // TODO(a): ideal memory type?
-
     dram_system_ = new JedecDRAMSystem(*config_, output_dir, read_callback,
         write_callback);
 }

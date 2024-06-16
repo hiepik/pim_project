@@ -22,7 +22,6 @@ BaseDRAMSystem::BaseDRAMSystem(Config &config, const std::string &output_dir,
 #endif  // THERMAL
       clk_(0) {
     total_channels_ += config_.channels;
-
     pim_func_sim_ = new PimFuncSim(config);
 
 #ifdef ADDR_TRACE
@@ -136,7 +135,6 @@ JedecDRAMSystem::JedecDRAMSystem(Config &config, const std::string &output_dir,
                   << std::endl;
         AbruptExit(__FILE__, __LINE__);
     }
-
     ctrls_.reserve(config_.channels);
     for (auto i = 0; i < config_.channels; i++) {
 #ifdef THERMAL
@@ -191,7 +189,7 @@ bool JedecDRAMSystem::AddTransaction(uint64_t hex_addr, bool is_write,
         
         // Because the Data_Ptr is in transaction, SB operation can't be operated in controller
         // therefore, SB is done in dram_system, and BG is done in controller
-        if (mode_ == 0) { pim_func_sim_->DRAM_IO(&trans); } // when single bank
+        if (mode_ != 1) { pim_func_sim_->DRAM_IO(&trans); } // when single bank
         
 
 #if 0

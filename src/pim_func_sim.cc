@@ -54,19 +54,21 @@ uint64_t PimFuncSim::ReverseAddressMapping(Address& addr) {
 bool PimFuncSim::ModeChanger(uint64_t hex_addr) {
     Address addr = config_.AddressMapping(hex_addr);
     if (addr.row == SB_ROW) {
-        if (bankmode[addr.channel] == "BG") {
+        if (bankmode[addr.channel] == "ABG") {
             bankmode[addr.channel] = "SB";
         }
-        //if (DebugMode(hex_addr))
-        //    std::cout << " Pim_func_sim: BG ¡æ SB mode change\n";
+        return true;
+    }
+    else if (addr.row == ABG_ROW) {
+        if (bankmode[addr.channel] == "SB") {
+            bankmode[addr.channel] = "ABG";
+        }
         return true;
     }
     else if (addr.row == BG_ROW) {
-        if (bankmode[addr.channel] == "SB") {
+        if (bankmode[addr.channel] == "ABG") {
             bankmode[addr.channel] = "BG";
         }
-        //if (DebugMode(hex_addr))
-        //    std::cout << " Pim_func_sim: SB ¡æ BG mode change\n";
         return true;
     }
     return false;
@@ -101,6 +103,7 @@ void PimFuncSim::DRAM_IO(Transaction* trans) {
     if (is_mode_change)
         return;
 
+    // should not call DRAM_IO when BG mode
     if (bankmode[addr.channel] == "BG") {
         std::cerr << "DRAM_IO executed in BG mode" << std::endl;
         exit(1);
@@ -109,11 +112,21 @@ void PimFuncSim::DRAM_IO(Transaction* trans) {
     // R/W put it in else loop
     //if (DebugMode(hex_addr))
     //    std::cout << "RD/WR\n";
-    if (is_write) {
-        PmemWrite(hex_addr, DataPtr);
+    if(bankmode[addr.channel] == "SB"){
+        if (is_write) {
+            PmemWrite(hex_addr, DataPtr);
+        }
+        else {
+            PmemRead(hex_addr, DataPtr);
+        }
     }
-    else {
-        PmemRead(hex_addr, DataPtr);
+    else if (bankmode[addr.channel] == "ABG"){        
+        if (addr.row == 0x3ffb){
+            //std::cout << "Is proper?: " << *((uint16_t*)DataPtr) << std::endl;
+            for(int i=0; i < config_.bankgroups; i++){
+               pim_unit_[addr.channel * config_.bankgroups + i]->SetSrf(DataPtr);
+            }
+        }
     }
     
     return;
@@ -122,8 +135,12 @@ void PimFuncSim::DRAM_IO(Transaction* trans) {
 
 // run PIM_OP on all bankgroups on a channel
 void PimFuncSim::PIM_OP(int channel) {
+    bool exit = false;
     for (int i = 0; i < 4; i++) {
-        pim_unit_[channel * config_.bankgroups + i]->PIM_OP();
+        if(pim_unit_[channel * config_.bankgroups + i]->PIM_OP()){exit = true;}
+    }
+    if(exit){
+        bankmode[channel] = "ABG";
     }
 }
 

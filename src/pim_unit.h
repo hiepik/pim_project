@@ -30,21 +30,28 @@ public:
 
 	bool cache_written = false;
 	bool cache_dirty[8];
+	uint8_t cache_aam[8];
 
 	PimInstruction CRF[32];
 
 	void Pim_Read(uint64_t hex_addr, BaseRow base_row);
-	void PIM_OP();
+	bool PIM_OP();
 	void Pim_Write(uint64_t hex_addr, BaseRow base_row);
 	void Execute();
+	
+	void SetSrf(uint8_t* DataPtr);
 
 	unsigned GetSourceBank();
 
 	void _ADD();
 	void _MUL();
 	void _BN();
+	void _GEMV();
+	void _ST();
 
 	unit_t* CACHE_;
+	unit_t* SRF_;
+	unit_t* ACC_;
 
 	uint8_t* pmemAddr_;
 	uint64_t pmemAddr_size_;

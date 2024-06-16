@@ -10,12 +10,23 @@ PimUnit::PimUnit(Config& config, int id) : pim_id(id), config_(config) {
 
 	// initialize Cache's
 	CACHE_ = (unit_t*)malloc(CACHE_SIZE);
+	// initialize SRF
+	SRF_ = (unit_t*)malloc(SRF_SIZE);
+	// initialize ACC
+	ACC_ = (unit_t*)malloc(ACC_SIZE);
+	
 
 	for (int i = 0; i < (CACHE_SIZE / (int)sizeof(unit_t)); i++) {
 		CACHE_[i] = 0;
 	}
+	for (int i = 0; i < (SRF_SIZE / (int)sizeof(unit_t)); i++) {
+		SRF_[i] = 0;
+	}
+	for (int i = 0; i < (ACC_SIZE / (int)sizeof(unit_t)); i++) {
+		ACC_[i] = 0;
+	}
 	
-	for (int i = 0; i < 8; i++){cache_dirty[i]=false;}
+	for (int i = 0; i < 8; i++){cache_dirty[i]=false; cache_aam[i] = 0;}
 
 	cache_written = false;
 	
@@ -34,7 +45,11 @@ void PimUnit::init(uint8_t* pmemAddr, uint64_t pmemAddr_size, unsigned int burst
 	for (int i = 0; i < 8; i++){cache_dirty[i]=false;}
 }
 
-void PimUnit::PIM_OP() {
+void PimUnit::SetSrf(uint8_t* DataPtr){
+    memcpy(SRF_, DataPtr, SRF_SIZE);
+}
+
+bool PimUnit::PIM_OP() {
 	// one of cache is used for operands for pim
 	// the other is used for banks to R/W
 	// change operand cache at every PIM_OP
@@ -50,8 +65,6 @@ void PimUnit::PIM_OP() {
 		// Point to next PIM_INSTRUCTION
 		PPC += 1;
 	}
-
-
 
 	// Deal with PIM operation NOP & JUMP
 	//  Performed by using LC(Loop Counter)
@@ -76,9 +89,10 @@ void PimUnit::PIM_OP() {
 	// Reset PPC and return EXIT_END
 	if (CRF[PPC].PIM_OP == PIM_OPERATION::EXIT) {
 		PPC = 0;
-		return;
+		return true;
 	}
-	return;
+	// return false to maintain BG-mode
+	return false;
 }
 
 void PimUnit::Execute() {
@@ -93,7 +107,13 @@ void PimUnit::Execute() {
 	case PIM_OPERATION::BN:
 	        _BN();
 	        break;
+	case PIM_OPERATION::GEMV:
+		_GEMV();
+		break;
 	case PIM_OPERATION::LD: // load to cache, nothing to calculate
+		break;
+	case PIM_OPERATION::ST: // store cache with ACC
+		_ST();
 	        break;
 	default:
 		std::cout << "not add" << std::endl;
@@ -135,6 +155,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		source_addr = hex_addr + base_row.ba0_ + ba_offset;	
 		memcpy((CACHE_+(RW_cache_index*UNITS_PER_WORD)), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
+		cache_aam[RW_cache_index] = (uint8_t)((source_addr >> (config_.co_pos + config_.shift_bits)) & 0x3f);
 	}
 	if (source_bank & 0b10) {
 		if (base_row.ba1_ == idle_row) {
@@ -145,6 +166,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		source_addr = hex_addr + base_row.ba1_ + ba_offset;
 		memcpy((CACHE_ + (1 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
+		cache_aam[RW_cache_index+2] = (uint8_t)((source_addr >> (config_.co_pos + config_.shift_bits)) & 0x3f);
 	}
 	if (source_bank & 0b100) {
 		if (base_row.ba2_ == idle_row) {
@@ -155,6 +177,7 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		source_addr = hex_addr + base_row.ba2_ + ba_offset;
 		memcpy((CACHE_ + (2 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
 		cache_written = true;
+		cache_aam[RW_cache_index+4] = (uint8_t)((source_addr >> (config_.co_pos + config_.shift_bits)) & 0x3f);
 	}
 	if (source_bank & 0b1000) {
 		if (base_row.ba3_ == idle_row) {
@@ -164,6 +187,11 @@ void PimUnit::Pim_Read(uint64_t hex_addr, BaseRow base_row){
 		ba_offset = (uint64_t)3 << (config_.ba_pos + config_.shift_bits);
 		source_addr = hex_addr + base_row.ba3_ + ba_offset;
 		memcpy((CACHE_ + (3 * 2 + RW_cache_index) * UNITS_PER_WORD), pmemAddr_ + source_addr, WORD_SIZE);
+		cache_written = true;
+		cache_aam[RW_cache_index+6] = (uint8_t)((source_addr >> (config_.co_pos + config_.shift_bits)) & 0x3f);
+	}
+	if (CRF[PPC].src_ & 0x30) {
+		// cache is not written, but PIM_OP should run for the next cycle
 		cache_written = true;
 	}
 
@@ -304,6 +332,47 @@ void PimUnit::_BN() {
 	for (int i = 0; i < 16; i++) {
 		dst[i] = srcx[i] * srcy[i] + srcz[i];
 	}
+}
+
+void PimUnit::_GEMV(){
+	unit_t* dst;
+	unit_t* src0;
+	unit_t* src1;
+	int vec_index;	
+	
+	dst = ACC_ + ((CRF[PPC].dst_ - 4) * UNITS_PER_WORD);
+	
+	if(CRF[PPC].dst_ == 4){ // when bank0 and bank 2 are source
+	    src0 = CACHE_ + (operand_cache) * UNITS_PER_WORD;
+	    src1 = CACHE_ + (2 * 2 + operand_cache) * UNITS_PER_WORD;    
+	    vec_index = (int)(cache_aam[0 + operand_cache] & 0b111);	    
+	}
+	else if(CRF[PPC].dst_ == 5){ // when bank 1 and bank 3 are source
+	    src0 = CACHE_ + (1 * 2 + operand_cache) * UNITS_PER_WORD;
+	    src1 = CACHE_ + (3 * 2 + operand_cache) * UNITS_PER_WORD;   
+	    vec_index = (int)(cache_aam[2 + operand_cache] & 0b111);
+	}
+	else{ std::cerr << "gemv dst not properly set\n"; exit(1); }
+	
+	//std::cout << "SRF? " << SRF_[vec_index*2] << std::endl;
+	for (int i = 0; i < 16; i++) {
+		dst[i] += src0[i] * SRF_[vec_index*2] + src1[i] * SRF_[vec_index*2+1];
+	}
+}
+
+void PimUnit::_ST(){
+	unit_t* dst;
+	unit_t* src;
+	
+	dst = CACHE_ + (CRF[PPC].dst_ * 2 + operand_cache) * UNITS_PER_WORD;
+	cache_dirty[CRF[PPC].dst_ * 2 + operand_cache] = true;
+	
+	src = ACC_ + UNITS_PER_WORD * (CRF[PPC].dst_ & 1); // src is ACC[0] when dst even, ACC[1] when dst odd
+	
+	for (int i = 0; i < 16; i++) {
+		dst[i] = src[i];
+		src[i] = 0;
+	}	
 }
 
 } // dramsim

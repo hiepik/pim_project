@@ -11,6 +11,7 @@
 
 #define SB_ROW             0x3fff
 #define BG_ROW             0x3ffe
+#define ABG_ROW	    0x3ffd
 
 namespace dramsim3 {
 

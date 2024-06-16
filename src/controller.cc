@@ -79,7 +79,33 @@ void Controller::ClockTick() {
     if (!cmd.IsValid()) {
         cmd = cmd_queue_.GetCommandToIssue();
     }
-    if (cmd.IsValid()) {
+    if (cmd.IsValid()) {   
+        /*
+        if(mode_==1 && channel_id_ == 0){
+            std::cout << "command-BG: ";
+            switch(cmd.cmd_type){
+            case (CommandType::PRECHARGE):
+                std::cout << "PRECHARGE ";
+                break;
+            case (CommandType::ACTIVATE):
+                std::cout << "ACTIVATE ";
+                break;
+            case (CommandType::READ):
+                std::cout << "BURST ";
+                break;
+            case (CommandType::WRITE):
+                std::cout << "DRAIN ";
+                break;
+                
+            default:
+                std::cout << "UNEXPECTED " << (int)cmd.cmd_type;
+            }
+            if(cmd.IsRead()){std::cout << " col: " << cmd.Column() << "row: " << cmd.Row();}
+            std::cout << " running...\n";
+            
+        }
+        */
+
         // SUMIN EDIT
         // pim only activates on R/W command
         if (mode_ == 1 && cmd.IsReadWrite()) {

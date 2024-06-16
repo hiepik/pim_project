@@ -9,6 +9,8 @@ typedef uint16_t unit_t;
 #define UNITS_PER_WORD	(WORD_SIZE / UNIT_SIZE)
 
 #define CACHE_SIZE		8 * (UNITS_PER_WORD * UNIT_SIZE)
+#define SRF_SIZE		(UNITS_PER_WORD * UNIT_SIZE)
+#define ACC_SIZE		2 * (UNITS_PER_WORD * UNIT_SIZE)
 
 
 enum class PIM_OPERATION {
@@ -19,7 +21,8 @@ enum class PIM_OPERATION {
 	ADD,
 	MUL,
 	BN,
-	GEMV	
+	GEMV,
+	ST
 };
 
 // 528sumin add command and src_
